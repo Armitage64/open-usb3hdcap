@@ -325,10 +325,10 @@ static void *worker(void *data)
 
         hdcap_signal locked_sig = sig;
         hdcap_demux *dx = hdcap_demux_new(on_frame, on_audio, s);
-        if (dx && (input == HDCAP_INPUT_COMPOSITE || input == HDCAP_INPUT_SVIDEO) && !sig.interlaced) {
+        if (dx && hdcap_wants_line_double(input, &sig)) {
             hdcap_demux_set_line_double(dx, 1);
-            logf_(s, HDCAP_LOG_INFO, "progressive %dp source: line-doubled to %d lines", sig.vtotal == 312 ? 288 : 240,
-                  sig.vtotal == 312 ? 576 : 480);
+            int field_lines = applied ? applied->vactive : sig.vtotal >= 300 ? 288 : 240;
+            logf_(s, HDCAP_LOG_INFO, "progressive %dp source: line-doubled to %d lines", field_lines, 2 * field_lines);
         }
         double rate = hdcap_estimate_rate(input, &sig, applied);
         logf_(s, HDCAP_LOG_INFO, "expected stream rate %.1f MB/s", rate / 1e6);

@@ -156,6 +156,9 @@ typedef struct {
 const hdcap_mode *hdcap_modes(size_t *count);
 /* Best standard mode for a locked analog signal, or NULL. */
 const hdcap_mode *hdcap_find_mode(hdcap_input in, const hdcap_signal *s);
+/* True for progressive sources with at most ~320 lines per frame (240p/288p) on the analog inputs
+ * (Composite, S-Video, VGA, Component): their frames are line-doubled so they keep a 4:3 shape. */
+int hdcap_wants_line_double(hdcap_input in, const hdcap_signal *s);
 /* Program the MST3367 for an analog mode on VGA or Component: the ADC front end for the mode's
  * pixel clock (PLL gain, clamp timing, sync width), the sampling PLL (h-total), and the crop window
  * on the active area shifted by the given offsets (samples / lines). */
@@ -189,8 +192,9 @@ typedef struct hdcap_demux hdcap_demux;
 
 hdcap_demux *hdcap_demux_new(hdcap_frame_cb on_frame, hdcap_audio_cb on_audio, void *user);
 void hdcap_demux_free(hdcap_demux *dx);
-/* Progressive SD sources (240p/288p consoles on Composite/S-Video): emit every field as its own
- * frame with each line doubled (720x480/576, correct shape), instead of weaving field pairs. */
+/* Progressive SD sources (240p/288p consoles on Composite/S-Video, 15 kHz RGB on VGA, 240p on
+ * Component): emit every field as its own frame with each line doubled (e.g. 720x480/576 or
+ * 640x480, correct shape), instead of weaving field pairs. */
 void hdcap_demux_set_line_double(hdcap_demux *dx, int on);
 /* Feed raw isochronous payload bytes (any chunking). */
 void hdcap_demux_feed(hdcap_demux *dx, const uint8_t *data, size_t len);

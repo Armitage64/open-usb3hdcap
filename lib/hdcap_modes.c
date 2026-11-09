@@ -108,6 +108,19 @@ const hdcap_mode *hdcap_find_mode(hdcap_input in, const hdcap_signal *s)
     return best;
 }
 
+int hdcap_wants_line_double(hdcap_input in, const hdcap_signal *s)
+{
+    if (s->interlaced)
+        return 0;
+    if (in == HDCAP_INPUT_COMPOSITE || in == HDCAP_INPUT_SVIDEO)
+        return 1;
+    /* 15 kHz progressive on the ADC: 262/263 lines (240p) or 312/313 (288p); allow for sources that
+     * add equalizing pulses to their sync. 31 kHz modes (480p, VGA) have 500+ lines and pass through. */
+    if (in == HDCAP_INPUT_VGA || in == HDCAP_INPUT_COMPONENT)
+        return s->vtotal > 0 && s->vtotal <= 320;
+    return 0;
+}
+
 static int mst_write(hdcap *dev, uint8_t reg, uint8_t val)
 {
     int r = hdcap_i2c_write(dev, HDCAP_I2C_MST3367, 0x00, 0x00); /* bank 0 */

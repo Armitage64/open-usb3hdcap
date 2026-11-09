@@ -65,6 +65,29 @@ int main(void)
            doubled_ok ? "yes" : "NO");
     fails += !(frames >= 3 && last_h == 2 * LINES && !last_interlaced && doubled_ok);
     hdcap_demux_free(dx);
+
+    /* Which signals the session line-doubles (lines per field/frame as the receivers report them) */
+    static const struct { hdcap_input in; int vtotal, interlaced, want; const char *what; } cases[] = {
+        { HDCAP_INPUT_COMPOSITE, 262, 0, 1, "Composite 240p" },
+        { HDCAP_INPUT_COMPOSITE, 262, 1, 0, "Composite 480i" },
+        { HDCAP_INPUT_VGA,       262, 0, 1, "VGA 15 kHz RGB 240p" },
+        { HDCAP_INPUT_VGA,       313, 0, 1, "VGA 15 kHz RGB 288p" },
+        { HDCAP_INPUT_VGA,       525, 0, 0, "VGA 640x480@60" },
+        { HDCAP_INPUT_VGA,       0,   0, 0, "VGA no signal" },
+        { HDCAP_INPUT_COMPONENT, 263, 0, 1, "Component 240p" },
+        { HDCAP_INPUT_COMPONENT, 272, 1, 0, "Component 480i" },
+        { HDCAP_INPUT_COMPONENT, 525, 0, 0, "Component 480p" },
+        { HDCAP_INPUT_HDMI,      262, 0, 0, "HDMI (never)" },
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        hdcap_signal sig = { 0 };
+        sig.locked = 1;
+        sig.vtotal = cases[i].vtotal;
+        sig.interlaced = cases[i].interlaced;
+        int got = hdcap_wants_line_double(cases[i].in, &sig);
+        printf("line double %-22s %d%s\n", cases[i].what, got, got == cases[i].want ? "" : "  <-- WRONG");
+        fails += got != cases[i].want;
+    }
     printf("%s\n", fails ? "FAILURES" : "ALL OK");
     return fails != 0;
 }

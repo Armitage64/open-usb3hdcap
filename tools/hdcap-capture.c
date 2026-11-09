@@ -280,9 +280,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "HDCP-protected source (receiver status %02x/%02x): capture blocked\n", hraw[0], hraw[1]);
     }
     hdcap_demux *dx = hdcap_demux_new(on_frame, on_audio, &c);
-    if (dx && (input == HDCAP_INPUT_COMPOSITE || input == HDCAP_INPUT_SVIDEO) && have_sig && !sig.interlaced) {
+    if (dx && have_sig && hdcap_wants_line_double(input, &sig)) {
         hdcap_demux_set_line_double(dx, 1);
-        fprintf(stderr, "progressive SD source: line doubling\n");
+        fprintf(stderr, "progressive SD source (%d lines): line doubling\n", sig.vtotal);
     }
     fprintf(stderr, "expected stream rate: %.1f MB/s\n", rate / 1e6);
     if (!dx || (r = hdcap_stream_start_rate(dev, dx, rate)) < 0) {
