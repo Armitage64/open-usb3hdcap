@@ -282,12 +282,18 @@ same line rate and line count as VESA 640×480@60, so it needs a manual choice.
   field.
 - **Progressive 15 kHz sources on the MST3367 (VGA, Component).** The same line doubling applies
   when the MST3367 reports a progressive signal with at most 320 lines per frame (bank 0 0x5B/0x5C:
-  262/263 for 240p, 312/313 for 288p; 0x5F bit 1 clear). With no 15 kHz mode in the table the
-  default VGA window (480 lines high) is kept, and a field ends at vertical sync: a MiSTer FPGA
-  (`vga_scaler=0`, `forced_scandoubler=0`) at 263 lines gave 248 active lines (720x496 doubled).
-  While the source switches modes it can miss vertical sync, and that field runs on to the end of
-  the window (298 and 480 lines seen live). The demuxer therefore crops or pads such fields to the
-  current height and only adopts a new field size after it has held for 30 fields.
+  262/263 for 240p, 312/313 for 288p; 0x5F bit 1 clear). libhdcap's modes "720x240p (240p,
+  15 kHz)" and "720x288p (288p, 15 kHz)" sample at 13.5 MHz (PLL divider for 858/864 samples per
+  line, as 480i/576i) with a 720 x 240/288 window, so the output is a constant 720x480/576.
+  Window h-start (sync + back porch): 133 for 240p and 141 for 288p, 14 and 9 samples later than
+  480i/576i, measured on a MiSTer FPGA (`vga_scaler=0`, `forced_scandoubler=0`): with the 480i/576i
+  values a Genesis H40 grid, an Amiga NTSC hires and an Amiga PAL lores Workbench sat 12, 18 and 9
+  samples right of centre. Vertical start (18/22) is unchanged; the PAL Amiga's vertical position
+  differed by one line between capture sessions.
+  Without these modes the default VGA window (480 lines high) applied and a field ended at vertical
+  sync (263 lines gave 248 active lines, 720x496 doubled); a field that missed vertical sync while
+  the source switched modes ran on to 298 or 480 lines. The demuxer therefore crops or pads odd
+  fields to the current height and only adopts a new field size after it has held for 30 fields.
 - **Picture controls** (datasheet): 0x10 brightness (signed), 0x11 contrast (%, 0x64 = 100%), 0x12
   bits 3:0 sharpness (upper bits 0x50 kept), 0x13/0x14 U/V gain (0x80 = 100%), 0x15 hue (signed,
   NTSC only). The Windows defaults, BRIGHT 0xF7, CONTRAST 0x79, SAT 0x80, HUE 0x00, SHARPNESS 0x52, are

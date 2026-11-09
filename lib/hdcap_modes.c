@@ -69,6 +69,19 @@ static const hdcap_mode modes[] = {
     { "1920x1080i60",           2200, 1920, 192, 1125, 540, 20,  74.250, 1, CEA },
     { "1920x1080p50",           2640, 1920, 192, 1125, 1080, 41, 148.500, 0, CEA },
     { "1920x1080p60",           2200, 1920, 192, 1125, 1080, 41, 148.500, 0, CEA },
+    /* 15 kHz progressive: 240p/288p from consoles, home computers and arcade boards, as RGB on VGA
+     * or YPbPr on Component. BT.601 sampling (13.5 MHz, 858/864 samples per line, 720 wide) with the
+     * horizontal placement of 480i/576i; the window holds exactly one field's 240/288 lines, so the
+     * line-doubled output is a constant 720x480/576 (4:3, like Composite/S-Video 240p). Sources run
+     * 262 or 263 (312 or 313) lines; matching allows for both. Appended at the end because OBS and
+     * hdcapd store a manually chosen mode as its index in this table.
+     * 240p h-start: 14 samples later than 480i's 119. With 119, a MiSTer Genesis (H40, 320 px) and
+     * an Amiga (NTSC hires, Workbench) both sat right of centre (margins 50/26 and 67/30 samples);
+     * at 133 they are 36/40 and 53/44, both fully inside the window.
+     * 288p h-start: 9 samples later than 576i's 132. A MiSTer Amiga (PAL lores, Workbench) sat at
+     * 55/37 with 132 and is centred at 141. */
+    { "720x240p (240p, 15 kHz)", 858,  720, 133, 262,  240, 18,  13.500, 0, CEA },
+    { "720x288p (288p, 15 kHz)", 864,  720, 141, 312,  288, 22,  13.500, 0, CEA },
 };
 
 const hdcap_mode *hdcap_modes(size_t *count)

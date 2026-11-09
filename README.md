@@ -40,7 +40,7 @@ Verified live on an Intel Mac (macOS 15), with OBS 32.2.2, QuickTime and ffmpeg:
 | Component | 480i, 480p | DVD player |
 | S-Video | NTSC 480i, picture controls | DVD player |
 | Composite | NTSC 480i (deinterlaced to 60 fps in the camera), **240p** (line-doubled to 720×480 at 60 fps) | VHS deck, Sega Dreamcast, Super Nintendo |
-| VGA, 15 kHz RGB | 200-line progressive modes from 640×200 to 1200×200 (line-doubled), 1200×400 interlaced, switching between modes while capturing. OBS plugin on an Apple Silicon Mac (M1 Max, macOS 26.6.2) | MiSTer FPGA analog VGA output with `vga_scaler=0`, `forced_scandoubler=0` (Amiga and Genesis cores) |
+| VGA, 15 kHz RGB | **240p** (60 Hz) and **288p** (50 Hz), detected automatically and line-doubled to 720×480 / 720×576 (4:3): Genesis H40 (320×224), Amiga NTSC hires (640×200) and PAL lores; 200-line modes up to 1200×200, 1200×400 interlaced, switching between modes while capturing. OBS plugin and `hdcap-capture` on an Apple Silicon Mac (M1 Max, macOS 26.6.2) | MiSTer FPGA analog VGA output with `vga_scaler=0`, `forced_scandoubler=0` (Genesis core with the 240p Test Suite, Amiga core) |
 | Audio | HDMI embedded, analog line-in; clock drift corrected (20-minute runs without glitches) | |
 | Robustness | input switching, unplug and replug | |
 
@@ -54,9 +54,9 @@ open an issue with the **Test report** template. Working results are as valuable
 - **Apple Silicon Macs** (all binaries are universal but have only run on Intel), and **sleep and
   wake** while capturing.
 - VGA above 1600×1200, and other VGA sources (older PCs, scan converters).
-- 15 kHz RGB beyond what is listed above: 50 Hz (288p, 576i) sources, other computers and consoles,
-  the camera/audio service and `hdcap-capture` with 15 kHz sources, and **240p on Component**
-  (line-doubled like Composite, but never seen live).
+- 15 kHz RGB beyond what is listed above: other computers, consoles and arcade boards, 576i, the
+  camera/audio service with 15 kHz sources, and **240p/288p on Component** (same modes and line
+  doubling as VGA, but never seen live).
 - Other StarTech/YUAN models built on the same chips (for example the StarTech XCAPTURE-1).
 - Linux: the core library and `hdcap-capture` build there, but haven't been run.
 
@@ -69,11 +69,13 @@ open an issue with the **Test report** template. Working results are as valuable
   capture blocked" notice and audio is muted. Unprotected content from the same device (for example
   a streaming box's menus) captures normally.
 - Composite/S-Video NTSC frames are 720×478, two lines fewer than the Windows driver delivers.
-- 15 kHz RGB on VGA has no timing modes of its own yet: it is sampled with the default VGA window,
-  720 samples wide, giving frames such as 720×496 (60 Hz) or 720×596 (50 Hz). These are shown at
-  their pixel shape, not exactly 4:3, and the horizontal sampling does not follow the source's
-  pixel clock. Interlaced 15 kHz sources rely on the receiver's interlace flag; if it read a 480i
-  or 576i source as progressive, each field would be shown line-doubled instead of woven.
+- 15 kHz RGB (240p/288p) is sampled at the standard 13.5 MHz, 720 samples per line, not at the
+  source's own pixel clock: about 2 samples per Genesis H40 pixel, slightly under 1 per Amiga hires
+  pixel. Vertical edges can be a sample soft, and the finest horizontal detail of hires modes is
+  not fully resolved. The picture position was tuned on a MiSTer FPGA (Genesis and Amiga cores);
+  other sources may sit a few samples off centre (adjust with the horizontal offset). Interlaced
+  15 kHz sources rely on the receiver's interlace flag; if it read a 480i or 576i source as
+  progressive, each field would be shown line-doubled instead of woven.
 
 ## Build from source
 Requires libusb ≥ 1.0.27 and pkg-config (`brew install libusb pkgconf`).
