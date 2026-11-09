@@ -38,6 +38,7 @@ struct hdcap_session {
     hdcap_session_status status;       /* guarded by lock */
     /* worker-only */
     uint64_t last_frame_ns, fps_window_ns, fps_frames;
+    int      logged_w, logged_h, logged_interlaced; /* last frame geometry written to the log */
     /* HDCP compliance (worker only): while the source encrypts, frames become a notice and audio
      * silence; checked before streaming starts and every HDCP_CHECK_NS while streaming */
     int      hdcp_blocked;
@@ -128,6 +129,13 @@ static void on_frame(const hdcap_frame *f, void *user)
     uint64_t now = hdcap_now_ns();
     s->last_frame_ns = now;
     s->fps_frames++;
+    if (f->width != s->logged_w || f->height != s->logged_h || f->interlaced != s->logged_interlaced) {
+        logf_(s, HDCAP_LOG_INFO, "frame size %dx%d%s (was %dx%d)", f->width, f->height, f->interlaced ? " interlaced" : "",
+              s->logged_w, s->logged_h);
+        s->logged_w = f->width;
+        s->logged_h = f->height;
+        s->logged_interlaced = f->interlaced;
+    }
     if (now - s->fps_window_ns >= 1000000000ULL) {
         pthread_mutex_lock(&s->lock);
         s->status.fps = s->fps_frames * 1e9 / (double)(now - s->fps_window_ns);

@@ -48,6 +48,21 @@ static void feed_fields(hdcap_demux *dx, int n)
         feed_line(dx, 0xAB, 16);
 }
 
+static void feed_blank(hdcap_demux *dx)
+{
+    for (int i = 0; i < 20; i++)
+        feed_line(dx, 0xAB, 16);
+}
+
+/* One progressive field: vertical blanking, then `lines` active lines. It is completed (and a
+ * frame emitted) by the blanking that starts the next field or by feed_blank(). */
+static void feed_var_field(hdcap_demux *dx, int lines)
+{
+    feed_blank(dx);
+    for (int y = 0; y < lines; y++)
+        feed_line(dx, 0x80, (uint8_t)(16 + y % 200));
+}
+
 int main(void)
 {
     int fails = 0;
@@ -64,6 +79,31 @@ int main(void)
     printf("line-doubled: %d frames, %d lines, interlaced %d, lines duplicated %s\n", frames, last_h, last_interlaced,
            doubled_ok ? "yes" : "NO");
     fails += !(frames >= 3 && last_h == 2 * LINES && !last_interlaced && doubled_ok);
+    hdcap_demux_free(dx);
+
+    /* Output height while the source changes modes (15 kHz RGB on VGA, default 480-line window):
+     * steady 248-line fields, then fields that miss vertical sync and run to the window's end
+     * (298, 480), then back to 248. The height must not stick at a glitch, and must follow a real
+     * change (to 288p and back down to 240p) once it holds for half a second. */
+    static const struct { int lines, count, want_h; const char *what; } steps[] = {
+        { 248, 10, 496, "steady 248-line fields" },
+        { 298, 1,  496, "one 298-line glitch field" },
+        { 480, 3,  496, "three 480-line glitch fields" },
+        { 248, 10, 496, "back to 248" },
+        { 288, 40, 576, "real change to 288p (held)" },
+        { 240, 40, 480, "real change down to 240p" },
+        { 239, 1,  480, "SNES-style 239/240 alternation" },
+        { 240, 1,  480, "SNES-style 239/240 alternation" },
+    };
+    dx = hdcap_demux_new(on_frame, NULL, NULL);
+    hdcap_demux_set_line_double(dx, 1);
+    for (size_t i = 0; i < sizeof steps / sizeof steps[0]; i++) {
+        for (int k = 0; k < steps[i].count; k++)
+            feed_var_field(dx, steps[i].lines);
+        feed_blank(dx); /* completes the last field */
+        printf("mode change: %-32s height %d%s\n", steps[i].what, last_h, last_h == steps[i].want_h ? "" : "  <-- WRONG");
+        fails += last_h != steps[i].want_h;
+    }
     hdcap_demux_free(dx);
 
     /* Which signals the session line-doubles (lines per field/frame as the receivers report them) */
