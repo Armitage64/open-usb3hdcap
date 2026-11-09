@@ -119,7 +119,8 @@ static void usage(void)
             "            window start (sync + back porch), window height (lines per frame), first line;\n"
             "            the pixel clock follows from the measured line rate. For finding a new mode's values\n"
             "  -H N, -V N  analog window offset in samples / lines\n"
-            "  -p N      analog ADC sampling phase 0..63 (default: automatic, from the chip's sharpness meter)\n"
+            "  -p N      analog ADC sampling phase 0..63 (default: automatic from the chip's sharpness meter\n"
+            "            for modes sampled at the source's pixel clock, the input table's for broadcast-rate modes)\n"
             "  -S STD    TV standard for composite/S-Video: Auto (default), NTSC-M, PAL, SECAM, NTSC-4.43, PAL-M, PAL-CN, PAL-60\n"
             "  -P B,C,S,H,SH  composite/S-Video picture: brightness, contrast %%, saturation (128 = 100%%), hue, sharpness\n"
             "  -s FILE   run sequence file before streaming (repeatable, in order)\n"
@@ -283,13 +284,17 @@ int main(int argc, char **argv)
                         fprintf(stderr, "set phase: %s\n", hdcap_strerror(r));
                     else
                         fprintf(stderr, "ADC phase %d (forced)\n", phase);
+                } else if (m->family != 0) {
+                    /* as the session: broadcast-rate modes keep the input table's phase */
+                    fprintf(stderr, "ADC phase: input table's (broadcast-rate mode; -p to force one)\n");
                 } else {
                     hdcap_phase_result ph;
                     if ((r = hdcap_auto_phase(dev, &ph)) < 0) {
                         fprintf(stderr, "auto-phase: %s\n", hdcap_strerror(r));
                     } else {
                         fprintf(stderr, "ADC phase %d (%s; coarse peak %d; meter", ph.phase,
-                                ph.found ? "auto" : "picture too flat, default", ph.coarse_phase);
+                                ph.found ? "auto" : ph.unsteady ? "picture changed while measuring, default" : "picture too flat, default",
+                                ph.coarse_phase);
                         for (int k = 0; k < HDCAP_PHASE_STEPS; k++)
                             fprintf(stderr, " %u", ph.value[k]);
                         if (ph.found) {

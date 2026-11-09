@@ -95,9 +95,7 @@ static const hdcap_mode modes[] = {
      * 512 lines high. Needs the auto-phase to be stable: at phase 0, 1-pixel text flickered.
      * The core's line is a fraction of a sample off 1104 (1103 and 1105 are far worse), so the best
      * phase drifts slightly across the line: even at the best phase about 500 of 393,000 pixels of a
-     * static screen change between frames (against about 12,800 at phase 0). Setting the
-     * undocumented bit 3 of 0x02 removed that once, but not after the MiSTer was rebooted, so it is
-     * left as the vendor tables have it. */
+     * static screen change between frames (against about 12,800 at phase 0). */
     { "768x512@60 (X68000, MiSTer)", 1104, 768, 263, 568, 512, 41, 37.627, 0, 0 },
     /* Sharp X68000 24 kHz mode, as the MiSTer core sends it: 481 lines at 28.86 kHz, 60 Hz. Found
      * with the sharpness meter: scanning 800-1400 samples per line, the phase spread peaked sharply
@@ -242,11 +240,15 @@ int hdcap_set_phase(hdcap *dev, int phase)
 static int sweep_phase(const hdcap_phase_sweep *sw, int i)
 {
     static const int check_offset[HDCAP_PHASE_CHECK_STEPS] = { -HDCAP_PHASE_CHECK_SPAN, HDCAP_PHASE_CHECK_SPAN, 0 };
+    if (sw->check == 2)
+        return sw->res.phase;   /* level reading: the phase in use */
     if (sw->check)
         return (sw->res.phase + check_offset[i] + 64) & 63;
     if (i < HDCAP_PHASE_STEPS)
         return i * 64 / HDCAP_PHASE_STEPS;
-    return (sw->res.coarse_phase + i - HDCAP_PHASE_STEPS - HDCAP_PHASE_FINE / 2 + 64) & 63;
+    if (i == HDCAP_PHASE_STEPS)
+        return 0;   /* the first coarse phase again: did the picture change during the pass? */
+    return (sw->res.coarse_phase + i - HDCAP_PHASE_STEPS - 1 - HDCAP_PHASE_FINE / 2 + 64) & 63;
 }
 
 /* Start measuring phase sw->step: set the phase and start the meter; it can be latched 50 ms later
@@ -301,6 +303,14 @@ int hdcap_phase_check_start(hdcap *dev, hdcap_phase_sweep *sw, int phase, uint64
     return sweep_begin(dev, sw, now_ns);
 }
 
+int hdcap_phase_level_start(hdcap *dev, hdcap_phase_sweep *sw, int phase, uint64_t now_ns)
+{
+    memset(sw, 0, sizeof *sw);
+    sw->check = 2;
+    sw->res.phase = phase & 63;
+    return sweep_begin(dev, sw, now_ns);
+}
+
 int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns)
 {
     uint8_t b[4];
@@ -313,6 +323,12 @@ int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns)
         (r = mst_read(dev, 0xE8, &b[2])) < 0 || (r = mst_read(dev, 0xE9, &b[3])) < 0)
         return sweep_end(dev, sw, r);
     uint32_t v = ((uint32_t)(b[3] & 3) << 24) | ((uint32_t)b[2] << 16) | ((uint32_t)b[1] << 8) | b[0];
+    if (sw->check == 2) {
+        /* level reading: one measurement at the phase in use, which never changed */
+        sw->res.fine[2] = v;
+        sw->res.check_ok = 1;
+        return (r = sweep_end(dev, sw, 0)) < 0 ? r : 1;
+    }
     if (sw->check) {
         /* neighbours first, the current phase last, so the picture ends where it started */
         sw->res.fine[sw->step++] = v;
@@ -326,17 +342,26 @@ int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns)
     }
     if (sw->step < HDCAP_PHASE_STEPS)
         sw->res.value[sw->step] = v;
+    else if (sw->step == HDCAP_PHASE_STEPS)
+        sw->res.repeat = v;
     else
-        sw->res.fine[sw->step - HDCAP_PHASE_STEPS] = v;
+        sw->res.fine[sw->step - HDCAP_PHASE_STEPS - 1] = v;
     sw->step++;
-    if (sw->step == HDCAP_PHASE_STEPS) {
-        /* coarse pass done: refine around its peak, unless there was none */
+    if (sw->step == HDCAP_PHASE_STEPS + 1) {
+        /* coarse pass done: refine around its peak, unless there was none, or the picture changed
+         * while it ran (a screen still being drawn makes later phases read higher, a false peak) */
         hdcap_phase_choose(&sw->res);
+        uint32_t a = sw->res.value[0], b = sw->res.repeat, d = a > b ? a - b : b - a;
+        if (sw->res.found && (uint64_t)d * 1000 > (uint64_t)(a > b ? a : b) * HDCAP_PHASE_MAX_DRIFT) {
+            sw->res.found = 0;
+            sw->res.unsteady = 1;
+            sw->res.phase = 0;
+        }
         sw->res.coarse_phase = sw->res.phase;
         if (!sw->res.found)
-            sw->step = HDCAP_PHASE_STEPS + HDCAP_PHASE_FINE;
+            sw->step = HDCAP_PHASE_STEPS + 1 + HDCAP_PHASE_FINE;
     }
-    if (sw->step < HDCAP_PHASE_STEPS + HDCAP_PHASE_FINE)
+    if (sw->step < HDCAP_PHASE_STEPS + 1 + HDCAP_PHASE_FINE)
         return (r = sweep_measure(dev, sw, now_ns)) < 0 ? sweep_end(dev, sw, r) : 0;
     if ((r = sweep_end(dev, sw, 0)) < 0)
         return r;
@@ -345,7 +370,7 @@ int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns)
         for (int i = 1; i < HDCAP_PHASE_FINE; i++)
             if (sw->res.fine[i] > sw->res.fine[best])
                 best = i;
-        sw->res.phase = sweep_phase(sw, HDCAP_PHASE_STEPS + best);
+        sw->res.phase = sweep_phase(sw, HDCAP_PHASE_STEPS + 1 + best);
     }
     return (r = hdcap_set_phase(dev, sw->res.phase)) < 0 ? r : 1;
 }
@@ -353,16 +378,13 @@ int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns)
 int hdcap_auto_phase(hdcap *dev, hdcap_phase_result *res)
 {
     hdcap_phase_sweep sw;
-    struct timespec t;
     int r;
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    if ((r = hdcap_phase_sweep_start(dev, &sw, (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec)) < 0)
+    if ((r = hdcap_phase_sweep_start(dev, &sw, hdcap_now_ns())) < 0)
         return r;
     do {
         struct timespec ts = { 0, 5 * 1000000L };
         nanosleep(&ts, NULL);
-        clock_gettime(CLOCK_MONOTONIC, &t);
-    } while ((r = hdcap_phase_sweep_poll(dev, &sw, (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec)) == 0);
+    } while ((r = hdcap_phase_sweep_poll(dev, &sw, hdcap_now_ns())) == 0);
     if (r < 0)
         return r;
     *res = sw.res;

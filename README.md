@@ -81,14 +81,18 @@ open an issue with the **Test report** template. Working results are as valuable
   other sources may sit a few samples off centre (adjust with the horizontal offset). Interlaced
   15 kHz sources rely on the receiver's interlace flag; if it read a 480i or 576i source as
   progressive, each field would be shown line-doubled instead of woven.
-- **Sampling phase (VGA/Component):** the driver picks the sharpest sampling phase with the
-  capture chip's own sharpness meter. The first time a mode appears this takes about 1.2 s before
-  the picture starts; after that the mode's phase is remembered (until OBS or the service restarts)
-  and set at once. Modes sampled at the source's pixel clock (PC/VESA, X68000) are checked again
-  3 and 10 s after a start, holding the last frame for a sixth of a second; if the phase turns out
-  to be off (for example it was measured on a boot screen), it is re-measured, holding the last
-  frame for about a second. A screen with less detail than the one the phase was found on doesn't
-  change it.
+- **Sampling phase (VGA/Component):** for modes sampled at the source's own pixel clock (PC/VESA
+  modes, the X68000 modes) the driver picks the sharpest sampling phase with the capture chip's
+  sharpness meter. The first time such a mode appears this takes about 1.2 s before the picture
+  starts; after that the mode's phase is remembered (until OBS or the service restarts) and set at
+  once. The phase is checked again 3 and 10 s after a start (holding the last frame for a sixth of
+  a second), and for two minutes the driver watches how much detail the picture has, which doesn't
+  disturb it: a picture with much more detail than the one the phase was found on (a desktop after
+  a boot screen) is measured again, holding the last frame for about a second. A picture with less
+  detail never changes the phase. Broadcast-rate modes (240p, 288p, 480i/p, 576i/p, HD) keep the
+  phase the input tables set, as before: they sample at 13.5 MHz (or the HD rates) whatever the
+  source's pixel clock, so there is no right phase, and on undersampled detail such as Amiga hires
+  the meter preferred the phase that flickered most.
 - The X68000 modes match the **MiSTer FPGA core's** timing. Its 768×512 line is a fraction of a
   sample longer or shorter than the 1104 samples the chip can be set to, so even at the best phase
   about 0.1 % of the pixels of a static screen are not perfectly steady. The 24 kHz window is 640

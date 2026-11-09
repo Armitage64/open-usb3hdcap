@@ -263,6 +263,16 @@ on a MiSTer FPGA X68000 core:
   phase, re-checks phase-locked modes 3 and 10 s after a start (neighbours +-4 first, a full sweep
   only if one is more than 0.5 % sharper), and ignores a re-check on a picture with less than half
   the detail the phase was found on. Frames are held back while the phase is being changed.
+- Reading the meter at the phase in use does not disturb the picture: 480 consecutive frames of a
+  static screen were unchanged while the meter ran and while 0x1E/0x1F were cleared for a second
+  (with them cleared the meter reads about 3 % higher). libhdcap uses such readings, every 2 s for
+  two minutes after a start, to re-measure when the picture gains detail (1.5 times the level the
+  phase was found on): a fresh X68000 core showed its boot screen past the 10 s check.
+- The meter only suits sampling at the source's pixel clock. In the 240p mode (13.5 MHz, an Amiga
+  hires pixel is slightly under one sample) it peaked at phase 9, where a static Workbench changed
+  1,192 pixels per frame, against 470-850 at the other phases (594 at the table's phase 0). So
+  libhdcap measures the phase only for family-0 modes (PC/VESA, X68000) and leaves broadcast-rate
+  modes at the input tables' phase.
 
 | X68000 mode (MiSTer core) | Lines, line rate | libhdcap mode | Samples per line, window |
 |---|---|---|---|

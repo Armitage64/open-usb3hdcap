@@ -166,13 +166,18 @@ int hdcap_set_mode(hdcap *dev, hdcap_input in, const hdcap_mode *m, int hoffset,
 
 /* ADC sampling phase (VGA/Component): 0..63 across one sample period. hdcap_auto_phase() measures
  * the MST3367's sharpness meter at HDCAP_PHASE_STEPS phases, then at HDCAP_PHASE_FINE phases around
- * the best (about 50 ms each, so about 1.2 s in all), and sets the sharpest. When the picture has
+ * the best (about 50 ms each, so about 1.25 s in all), and sets the sharpest. When the picture has
  * too little detail to tell phases apart (the spread between best and worst is under
  * HDCAP_PHASE_MIN_SPREAD tenths of a percent) it sets phase 0 and reports found = 0. Call it after
  * hdcap_set_mode(), with the source showing a picture. */
 #define HDCAP_PHASE_STEPS      16
 #define HDCAP_PHASE_FINE       7   /* then every phase from the coarse peak - 3 to + 3 */
 #define HDCAP_PHASE_MIN_SPREAD 10
+/* After the coarse pass the first phase is measured again; if the reading moved by more than
+ * HDCAP_PHASE_MAX_DRIFT tenths of a percent the picture changed during the sweep (e.g. a screen
+ * still being drawn), its peak is not trusted: found = 0, unsteady = 1. A steady picture repeats
+ * within about 0.3 %. */
+#define HDCAP_PHASE_MAX_DRIFT  20
 typedef struct {
     int      phase;                          /* the phase set */
     int      found;                          /* 1 = a sharpness peak was found */
@@ -182,6 +187,8 @@ typedef struct {
     uint32_t fine[HDCAP_PHASE_FINE];         /* meter at coarse_phase - 3 + i (when found); for a
                                               * check: at phase - span, phase + span, phase */
     int      check_ok;                       /* check: no neighbour beats the phase (it is a peak) */
+    uint32_t repeat;                         /* meter at value[0]'s phase, measured again after the pass */
+    int      unsteady;                       /* the picture changed during the sweep: no result */
 } hdcap_phase_result;
 int hdcap_auto_phase(hdcap *dev, hdcap_phase_result *res);
 /* The decision part of hdcap_auto_phase(): from res->value, fill in phase, found, best, worst. */
@@ -192,7 +199,7 @@ void hdcap_phase_choose(hdcap_phase_result *res);
  * restored either way. While it runs the picture's sampling phase steps through all values. */
 typedef struct {
     hdcap_phase_result res;
-    int      active, step, check;
+    int      active, step, check;   /* check: 0 sweep, 1 neighbour check, 2 level reading */
     uint8_t  s1e, s1f;
     uint64_t due_ns;
 } hdcap_phase_sweep;
@@ -206,6 +213,11 @@ int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns);
 #define HDCAP_PHASE_CHECK_SPAN   4
 #define HDCAP_PHASE_CHECK_MARGIN 5
 int hdcap_phase_check_start(hdcap *dev, hdcap_phase_sweep *sw, int phase, uint64_t now_ns);
+/* A level reading, polled the same way: one meter measurement at the phase in use (res.fine[2]),
+ * without changing it. It does not disturb the picture (verified: no frame changed while the meter
+ * ran and while 0x1E/0x1F were cleared), so frames need not be held. Tells how much detail the
+ * picture has now, compared with the picture a phase was found on. */
+int hdcap_phase_level_start(hdcap *dev, hdcap_phase_sweep *sw, int phase, uint64_t now_ns);
 /* Stop a sweep or check early (e.g. the stream is stopping): restores the meter registers and
  * leaves the phase wherever it was. */
 int hdcap_phase_sweep_abort(hdcap *dev, hdcap_phase_sweep *sw);

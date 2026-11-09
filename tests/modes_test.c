@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * modes_15khz_test: which analog mode hdcap_find_mode() picks for 15 kHz signals (and that the
- * neighbouring 31 kHz and interlaced matches are unchanged), plus the table layout rules the
- * 15 kHz entries depend on.
+ * modes_test: which analog mode hdcap_find_mode() picks for the 15 kHz and X68000 signals added
+ * after v0.3.1 (and that the neighbouring 31 kHz and interlaced matches are unchanged), the table
+ * layout rules they depend on, and the auto-phase decision (hdcap_phase_choose).
  *
- *   cc -Iinclude $(pkg-config --cflags libusb-1.0) -o modes_15khz_test tests/modes_15khz_test.c \
- *      libhdcap.a $(pkg-config --libs libusb-1.0) && ./modes_15khz_test
+ *   cc -Iinclude $(pkg-config --cflags libusb-1.0) -o modes_test tests/modes_test.c \
+ *      libhdcap.a $(pkg-config --libs libusb-1.0) && ./modes_test
  */
 #include "hdcap.h"
 #include <stdio.h>
