@@ -39,6 +39,9 @@ struct hdcap_session {
     /* worker-only */
     uint64_t last_frame_ns, fps_window_ns, fps_frames;
     int      logged_w, logged_h, logged_interlaced; /* last frame geometry written to the log */
+    uint64_t logged_ns;                             /* when it was written (rate limit) */
+    unsigned unlogged_changes;                      /* size changes skipped by the rate limit */
+    int      last_w, last_h, last_interlaced;       /* previous frame's geometry */
     /* HDCP compliance (worker only): while the source encrypts, frames become a notice and audio
      * silence; checked before streaming starts and every HDCP_CHECK_NS while streaming */
     int      hdcp_blocked;
@@ -129,13 +132,28 @@ static void on_frame(const hdcap_frame *f, void *user)
     uint64_t now = hdcap_now_ns();
     s->last_frame_ns = now;
     s->fps_frames++;
-    if (f->width != s->logged_w || f->height != s->logged_h || f->interlaced != s->logged_interlaced) {
-        logf_(s, HDCAP_LOG_INFO, "frame size %dx%d%s (was %dx%d)", f->width, f->height, f->interlaced ? " interlaced" : "",
-              s->logged_w, s->logged_h);
+    /* Log frame size changes, at most one line per second so an unstable signal can't flood the
+     * log: a size that changes again within the second is logged when the second is up, with the
+     * number of changes in between. */
+    int changed = f->width != s->last_w || f->height != s->last_h || f->interlaced != s->last_interlaced;
+    if ((f->width != s->logged_w || f->height != s->logged_h || f->interlaced != s->logged_interlaced) &&
+        (s->logged_ns == 0 || now - s->logged_ns >= 1000000000ULL)) {
+        char extra[48] = "";
+        if (s->unlogged_changes)
+            snprintf(extra, sizeof extra, "; %u unlogged changes since", s->unlogged_changes);
+        logf_(s, HDCAP_LOG_INFO, "frame size %dx%d%s (was %dx%d%s)", f->width, f->height, f->interlaced ? " interlaced" : "",
+              s->logged_w, s->logged_h, extra);
         s->logged_w = f->width;
         s->logged_h = f->height;
         s->logged_interlaced = f->interlaced;
+        s->logged_ns = now;
+        s->unlogged_changes = 0;
+    } else if (changed) {
+        s->unlogged_changes++;
     }
+    s->last_w = f->width;
+    s->last_h = f->height;
+    s->last_interlaced = f->interlaced;
     if (now - s->fps_window_ns >= 1000000000ULL) {
         pthread_mutex_lock(&s->lock);
         s->status.fps = s->fps_frames * 1e9 / (double)(now - s->fps_window_ns);
@@ -335,8 +353,15 @@ static void *worker(void *data)
         hdcap_demux *dx = hdcap_demux_new(on_frame, on_audio, s);
         if (dx && hdcap_wants_line_double(input, &sig)) {
             hdcap_demux_set_line_double(dx, 1);
-            int field_lines = applied ? applied->vactive : sig.vtotal >= 300 ? 288 : 240;
-            logf_(s, HDCAP_LOG_INFO, "progressive %dp source: line-doubled to %d lines", field_lines, 2 * field_lines);
+            if (input == HDCAP_INPUT_VGA || input == HDCAP_INPUT_COMPONENT) {
+                /* The output height follows the active lines the ADC window delivers (the "frame
+                 * size" log line reports it), not a mode's nominal height: a forced 31 kHz mode on a
+                 * 15 kHz source would otherwise be reported as e.g. 480p doubled to 960. */
+                logf_(s, HDCAP_LOG_INFO, "progressive 15 kHz source (%d lines per frame): line-doubled", sig.vtotal);
+            } else {
+                int field_lines = sig.vtotal >= 300 ? 288 : 240;
+                logf_(s, HDCAP_LOG_INFO, "progressive %dp source: line-doubled to %d lines", field_lines, 2 * field_lines);
+            }
         }
         double rate = hdcap_estimate_rate(input, &sig, applied);
         logf_(s, HDCAP_LOG_INFO, "expected stream rate %.1f MB/s", rate / 1e6);

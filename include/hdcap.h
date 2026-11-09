@@ -193,8 +193,12 @@ typedef struct hdcap_demux hdcap_demux;
 hdcap_demux *hdcap_demux_new(hdcap_frame_cb on_frame, hdcap_audio_cb on_audio, void *user);
 void hdcap_demux_free(hdcap_demux *dx);
 /* Progressive SD sources (240p/288p consoles on Composite/S-Video, 15 kHz RGB on VGA, 240p on
- * Component): emit every field as its own frame with each line doubled (e.g. 720x480/576 or
- * 640x480, correct shape), instead of weaving field pairs. */
+ * Component): emit every field as its own frame with each line doubled, instead of weaving field
+ * pairs. The width is the capture window's (720 on Composite/S-Video and with the default VGA
+ * window); the height is twice the field's active lines: 720x480/576 from the TW9900, and for
+ * example 720x496 (60 Hz) or 720x596 (50 Hz) from the MST3367's default VGA window. The height
+ * holds through a few odd fields and follows a new field size once it has held for 30 fields
+ * (0.5 s at 60 Hz, 0.6 s at 50 Hz). */
 void hdcap_demux_set_line_double(hdcap_demux *dx, int on);
 /* Feed raw isochronous payload bytes (any chunking). */
 void hdcap_demux_feed(hdcap_demux *dx, const uint8_t *data, size_t len);
