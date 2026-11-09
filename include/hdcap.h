@@ -164,6 +164,53 @@ int hdcap_wants_line_double(hdcap_input in, const hdcap_signal *s);
  * on the active area shifted by the given offsets (samples / lines). */
 int hdcap_set_mode(hdcap *dev, hdcap_input in, const hdcap_mode *m, int hoffset, int voffset);
 
+/* ADC sampling phase (VGA/Component): 0..63 across one sample period. hdcap_auto_phase() measures
+ * the MST3367's sharpness meter at HDCAP_PHASE_STEPS phases, then at HDCAP_PHASE_FINE phases around
+ * the best (about 50 ms each, so about 1.2 s in all), and sets the sharpest. When the picture has
+ * too little detail to tell phases apart (the spread between best and worst is under
+ * HDCAP_PHASE_MIN_SPREAD tenths of a percent) it sets phase 0 and reports found = 0. Call it after
+ * hdcap_set_mode(), with the source showing a picture. */
+#define HDCAP_PHASE_STEPS      16
+#define HDCAP_PHASE_FINE       7   /* then every phase from the coarse peak - 3 to + 3 */
+#define HDCAP_PHASE_MIN_SPREAD 10
+typedef struct {
+    int      phase;                          /* the phase set */
+    int      found;                          /* 1 = a sharpness peak was found */
+    int      coarse_phase;                   /* the coarse pass's peak */
+    uint32_t best, worst;                    /* meter range over the coarse pass */
+    uint32_t value[HDCAP_PHASE_STEPS];       /* meter at phase i * 64 / HDCAP_PHASE_STEPS */
+    uint32_t fine[HDCAP_PHASE_FINE];         /* meter at coarse_phase - 3 + i (when found); for a
+                                              * check: at phase - span, phase + span, phase */
+    int      check_ok;                       /* check: no neighbour beats the phase (it is a peak) */
+} hdcap_phase_result;
+int hdcap_auto_phase(hdcap *dev, hdcap_phase_result *res);
+/* The decision part of hdcap_auto_phase(): from res->value, fill in phase, found, best, worst. */
+void hdcap_phase_choose(hdcap_phase_result *res);
+/* The same sweep without blocking, for use while streaming: start it, then call poll with the
+ * current time (any clock in ns) from the streaming loop. Poll returns 0 while measuring, 1 when
+ * done (sw->res filled in and the phase set), or a negative error; the meter registers are
+ * restored either way. While it runs the picture's sampling phase steps through all values. */
+typedef struct {
+    hdcap_phase_result res;
+    int      active, step, check;
+    uint8_t  s1e, s1f;
+    uint64_t due_ns;
+} hdcap_phase_sweep;
+int hdcap_phase_sweep_start(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns);
+int hdcap_phase_sweep_poll(hdcap *dev, hdcap_phase_sweep *sw, uint64_t now_ns);
+/* A quick check that a phase is still the sharpest, polled the same way: measures phase - span and
+ * phase + span, then phase itself, and leaves the phase set. res.check_ok = 0 when a neighbour reads
+ * more than HDCAP_PHASE_CHECK_MARGIN tenths of a percent sharper: the phase is off its peak (for
+ * example it was measured while the source showed a boot screen) and a full sweep is due. */
+#define HDCAP_PHASE_CHECK_STEPS  3
+#define HDCAP_PHASE_CHECK_SPAN   4
+#define HDCAP_PHASE_CHECK_MARGIN 5
+int hdcap_phase_check_start(hdcap *dev, hdcap_phase_sweep *sw, int phase, uint64_t now_ns);
+/* Stop a sweep or check early (e.g. the stream is stopping): restores the meter registers and
+ * leaves the phase wherever it was. */
+int hdcap_phase_sweep_abort(hdcap *dev, hdcap_phase_sweep *sw);
+int hdcap_set_phase(hdcap *dev, int phase);
+
 /* ADC front-end settings the driver uses for a pixel clock (exposed for tests and tools). */
 typedef struct {
     uint8_t pll_gain;      /* bank 0 0x03 */

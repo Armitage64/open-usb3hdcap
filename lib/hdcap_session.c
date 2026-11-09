@@ -24,6 +24,28 @@
 #define SIGNAL_CHECK_NS     1000000000ULL
 #define NO_FRAME_TIMEOUT_NS 3000000000ULL
 #define HDCP_CHECK_NS       250000000ULL
+/* ADC auto-phase (VGA/Component). The phase found for a mode is remembered and set at once when the
+ * mode comes back (a source that has just switched modes or cores often shows a boot or black
+ * screen first, which measures wrong). A mode seen for the first time is measured before streaming.
+ * Modes whose sampling follows the source's pixel clock (family 0: PC/VESA, X68000) are checked
+ * again PHASE_RECHECK1/2 after the start, and every PHASE_RETRY_NS while no peak has been found,
+ * for up to PHASE_RETRY_FOR_NS; a check only moves the phase when the picture has at least half
+ * the detail it had when the phase was found. Broadcast-rate modes (240p, 480i, ...) sample at
+ * 13.5 MHz whatever the source's pixel clock, so no phase is right for them and they aren't
+ * re-checked. */
+#define PHASE_MEMORY        64
+#ifndef PHASE_RECHECK1_NS
+#define PHASE_RECHECK1_NS   3000000000ULL
+#endif
+#ifndef PHASE_RECHECK2_NS
+#define PHASE_RECHECK2_NS   10000000000ULL
+#endif
+#ifndef PHASE_RETRY_NS
+#define PHASE_RETRY_NS      5000000000ULL
+#endif
+#ifndef PHASE_RETRY_FOR_NS
+#define PHASE_RETRY_FOR_NS  60000000000ULL
+#endif
 
 struct hdcap_session {
     hdcap_session_callbacks cb;
@@ -41,6 +63,11 @@ struct hdcap_session {
     int      logged_w, logged_h, logged_interlaced; /* last frame geometry written to the log */
     uint64_t logged_ns;                             /* when it was written (rate limit) */
     unsigned unlogged_changes;                      /* size changes skipped by the rate limit */
+    int      hold_frames;                           /* ADC phase being measured: don't deliver frames */
+    /* ADC phase found for each analog mode (index into hdcap_modes()), reused when the mode comes
+     * back, and the sharpness the picture had then */
+    uint8_t  mem_valid[PHASE_MEMORY], mem_phase[PHASE_MEMORY];
+    uint32_t mem_level[PHASE_MEMORY];
     int      last_w, last_h, last_interlaced;       /* previous frame's geometry */
     /* HDCP compliance (worker only): while the source encrypts, frames become a notice and audio
      * silence; checked before streaming starts and every HDCP_CHECK_NS while streaming */
@@ -118,6 +145,15 @@ static int wait_ms(hdcap_session *s, unsigned ms)
     return stop;
 }
 
+static void remember_phase(hdcap_session *s, int mode_idx, int phase, uint32_t level)
+{
+    if (mode_idx < 0 || mode_idx >= PHASE_MEMORY)
+        return;
+    s->mem_valid[mode_idx] = 1;
+    s->mem_phase[mode_idx] = (uint8_t)phase;
+    s->mem_level[mode_idx] = level;
+}
+
 static int should_leave(hdcap_session *s)
 {
     pthread_mutex_lock(&s->lock);
@@ -164,6 +200,8 @@ static void on_frame(const hdcap_frame *f, void *user)
         s->fps_frames = 0;
         s->fps_window_ns = now;
     }
+    if (s->hold_frames)
+        return; /* the ADC phase is being measured: consumers keep the last frame */
     if (s->hdcp_blocked) {
         if (!s->notice || s->notice_w != f->width || s->notice_h != f->height) {
             free(s->notice);
@@ -332,6 +370,8 @@ static void *worker(void *data)
         if (digital)
             hdcp_check(s, dev);
         const hdcap_mode *applied = NULL;
+        int analog_phase = 0, phase_now = 0, phase_found = 0, mode_idx = -1;
+        uint32_t phase_level = 0;   /* sharpness when phase_now was found */
         if (input == HDCAP_INPUT_VGA || input == HDCAP_INPUT_COMPONENT) {
             size_t nm;
             const hdcap_mode *all = hdcap_modes(&nm);
@@ -341,8 +381,36 @@ static void *worker(void *data)
                 logf_(s, HDCAP_LOG_INFO, "analog mode: %s%s, offset %+d/%+d", m->name, cfg.analog_mode >= 0 ? " (manual)" : "",
                       cfg.h_offset, cfg.v_offset);
                 applied = m;
-                if ((r = hdcap_set_mode(dev, input, m, cfg.h_offset, cfg.v_offset)) < 0)
+                if ((r = hdcap_set_mode(dev, input, m, cfg.h_offset, cfg.v_offset)) < 0) {
                     logf_(s, HDCAP_LOG_WARNING, "set mode failed: %s", hdcap_strerror(r));
+                } else {
+                    /* Sample in the middle of the source's pixels: with the wrong phase, fine detail
+                     * (1-pixel text strokes) flips between frames and shimmers. */
+                    hdcap_phase_result ph;
+                    mode_idx = (int)(m - all);
+                    analog_phase = m->family == 0;
+                    if (mode_idx < PHASE_MEMORY && s->mem_valid[mode_idx]) {
+                        phase_now = s->mem_phase[mode_idx];
+                        phase_level = s->mem_level[mode_idx];
+                        phase_found = 1;
+                        if ((r = hdcap_set_phase(dev, phase_now)) < 0)
+                            logf_(s, HDCAP_LOG_WARNING, "set ADC phase failed: %s", hdcap_strerror(r));
+                        else
+                            logf_(s, HDCAP_LOG_INFO, "ADC phase %d (remembered for this mode)", phase_now);
+                    } else if ((r = hdcap_auto_phase(dev, &ph)) < 0) {
+                        logf_(s, HDCAP_LOG_WARNING, "ADC auto-phase failed: %s", hdcap_strerror(r));
+                    } else {
+                        phase_now = ph.phase;
+                        phase_found = ph.found;
+                        if (ph.found) {
+                            phase_level = ph.best;
+                            remember_phase(s, mode_idx, ph.phase, ph.best);
+                            logf_(s, HDCAP_LOG_INFO, "ADC phase %d (sharpness %u, worst phase %u)", ph.phase, ph.best, ph.worst);
+                        } else {
+                            logf_(s, HDCAP_LOG_INFO, "ADC phase 0: picture too flat to measure (sharpness %u..%u)", ph.worst, ph.best);
+                        }
+                    }
+                }
                 snprintf(detail, sizeof detail, "%s", m->name);
             } else {
                 logf_(s, HDCAP_LOG_WARNING, "no standard mode matches this signal; using default sampling");
@@ -379,6 +447,10 @@ static void *worker(void *data)
         s->fps_frames = 0;
         set_status(s, HDCAP_SESSION_STREAMING, &sig, detail);
         uint64_t next_check = hdcap_now_ns() + SIGNAL_CHECK_NS, next_hdcp = hdcap_now_ns() + HDCP_CHECK_NS;
+        uint64_t stream_t0 = hdcap_now_ns(), next_phase = analog_phase ? stream_t0 + PHASE_RECHECK1_NS : 0;
+        int phase_rechecks = 0;
+        hdcap_phase_sweep sweep;
+        sweep.active = 0;
         while (!should_leave(s)) {
             if (digital && hdcap_now_ns() >= next_hdcp) {
                 next_hdcp = hdcap_now_ns() + HDCP_CHECK_NS;
@@ -386,11 +458,69 @@ static void *worker(void *data)
             }
             if (s->picture_dirty && (input == HDCAP_INPUT_COMPOSITE || input == HDCAP_INPUT_SVIDEO))
                 apply_picture(s, dev);
-            if ((r = hdcap_stream_poll(dev, 100)) < 0) {
+            /* poll briefly while a phase sweep is measuring, so each 50 ms step is taken on time */
+            if ((r = hdcap_stream_poll(dev, sweep.active ? 10 : 100)) < 0) {
                 logf_(s, HDCAP_LOG_WARNING, "USB error: %s", hdcap_strerror(r));
                 break;
             }
             uint64_t now = hdcap_now_ns();
+            /* While the phase is being measured the picture's sampling changes: frames are held
+             * back (consumers keep showing the last one) until it is restored. A re-check is a
+             * quick look at the phase's neighbours; only a phase that is off its peak, or no peak
+             * found yet, gets a full sweep. */
+            if (next_phase && !sweep.active && now >= next_phase) {
+                r = phase_found ? hdcap_phase_check_start(dev, &sweep, phase_now, now) : hdcap_phase_sweep_start(dev, &sweep, now);
+                if (r < 0) {
+                    logf_(s, HDCAP_LOG_WARNING, "ADC phase re-check failed: %s", hdcap_strerror(r));
+                    next_phase = 0;
+                }
+                s->hold_frames = sweep.active;
+            } else if (sweep.active && (r = hdcap_phase_sweep_poll(dev, &sweep, now)) != 0) {
+                if (r > 0 && sweep.check) {
+                    const hdcap_phase_result *ph = &sweep.res;
+                    logf_(s, HDCAP_LOG_INFO, "ADC phase check at %.1f s: %d %s (sharpness %u, neighbours %u/%u)",
+                          (now - stream_t0) / 1e9, ph->phase, ph->check_ok ? "holds" : "is off its peak", ph->fine[2], ph->fine[0],
+                          ph->fine[1]);
+                    if (!ph->check_ok && (uint64_t)ph->fine[2] * 2 < phase_level) {
+                        /* e.g. a boot screen before the picture the phase was found on: its peak
+                         * says little about that picture, so keep the phase */
+                        logf_(s, HDCAP_LOG_INFO, "ADC phase %d kept: the picture has less detail than when it was found "
+                              "(sharpness %u, then %u)", ph->phase, ph->fine[2], phase_level);
+                    } else if (!ph->check_ok && (r = hdcap_phase_sweep_start(dev, &sweep, now)) == 0) {
+                        continue;   /* full sweep, frames still held */
+                    }
+                }
+                s->hold_frames = 0;
+                phase_rechecks++;
+                if (r < 0) {
+                    logf_(s, HDCAP_LOG_WARNING, "ADC phase re-check failed: %s", hdcap_strerror(r));
+                    next_phase = 0;
+                } else if (sweep.check) {
+                    next_phase = phase_rechecks == 1 ? stream_t0 + PHASE_RECHECK2_NS : 0;
+                } else {
+                    const hdcap_phase_result *ph = &sweep.res;
+                    logf_(s, HDCAP_LOG_INFO, "ADC phase re-check %d at %.1f s: best %d%s (sharpness %u..%u)", phase_rechecks,
+                          (now - stream_t0) / 1e9, ph->phase, ph->found ? "" : ", no peak", ph->worst, ph->best);
+                    if (ph->found && (!phase_found || ph->phase != phase_now))
+                        logf_(s, HDCAP_LOG_INFO, "ADC phase re-check: %d -> %d (sharpness %u, worst phase %u)", phase_now,
+                              ph->phase, ph->best, ph->worst);
+                    else if (!ph->found && phase_found)
+                        /* the picture went flat (e.g. a black screen): keep the phase found earlier */
+                        hdcap_set_phase(dev, phase_now);
+                    if (ph->found) {
+                        phase_now = ph->phase;
+                        phase_found = 1;
+                        phase_level = ph->best;
+                        remember_phase(s, mode_idx, ph->phase, ph->best);
+                    }
+                    if (!phase_found && now - stream_t0 < PHASE_RETRY_FOR_NS)
+                        next_phase = now + PHASE_RETRY_NS;
+                    else if (phase_rechecks == 1)
+                        next_phase = stream_t0 + PHASE_RECHECK2_NS;
+                    else
+                        next_phase = 0;
+                }
+            }
             if (now >= next_check) {
                 next_check = now + SIGNAL_CHECK_NS;
                 hdcap_signal cur;
@@ -425,6 +555,8 @@ static void *worker(void *data)
                 break;
             }
         }
+        hdcap_phase_sweep_abort(dev, &sweep);
+        s->hold_frames = 0;
         hdcap_stream_stop(dev);
         hdcap_demux_free(dx);
         hdcap_close(dev);

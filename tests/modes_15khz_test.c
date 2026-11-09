@@ -44,15 +44,39 @@ int main(void)
     expect(HDCAP_INPUT_COMPONENT, 525, 31.469, 0, "480p", "Component 480p (unchanged)");
     expect(HDCAP_INPUT_COMPONENT, 262, 15.734, 1, "480i", "Component 480i, 262 lines per field (unchanged)");
     expect(HDCAP_INPUT_VGA, 400, 15.734, 0, NULL, "VGA 400 lines at 15.7 kHz: no match (unchanged)");
+    /* X68000 on MiSTer: the 15 kHz 256x256 mode and the 31 kHz 768x512 mode (seen live) */
+    expect(HDCAP_INPUT_VGA, 264, 15.838, 0, "240p, 15 kHz", "X68000 15 kHz (264 lines, 15.838 kHz, seen live)");
+    expect(HDCAP_INPUT_VGA, 568, 34.082, 0, "X68000, MiSTer", "X68000 768x512 (568 lines, 34.082 kHz, seen live)");
+    expect(HDCAP_INPUT_VGA, 481, 28.861, 0, "X68000 24 kHz", "X68000 24 kHz (481 lines, 28.861 kHz, seen live)");
+
+    /* Auto-phase decision, from meter readings (the X68000 sweep seen live, then a flat picture) */
+    hdcap_phase_result ph = { 0 };
+    static const uint32_t x68k[HDCAP_PHASE_STEPS] = { 102739, 104829, 105139, 106607, 109363, 110440, 111409, 110899,
+                                                      110126, 109397, 108099, 105603, 103465, 101752, 103046, 103187 };
+    memcpy(ph.value, x68k, sizeof x68k);
+    hdcap_phase_choose(&ph);
+    printf("auto-phase, X68000 sweep: phase %d found %d%s\n", ph.phase, ph.found, ph.phase == 24 && ph.found ? "" : "  <-- WRONG");
+    fails += !(ph.phase == 24 && ph.found);
+    for (int i = 0; i < HDCAP_PHASE_STEPS; i++)
+        ph.value[i] = 50000 + (uint32_t)(i * 7 % 5) * 10; /* within 0.1 %: no real peak */
+    hdcap_phase_choose(&ph);
+    printf("auto-phase, flat picture: phase %d found %d%s\n", ph.phase, ph.found, ph.phase == 0 && !ph.found ? "" : "  <-- WRONG");
+    fails += !(ph.phase == 0 && !ph.found);
+    memset(ph.value, 0, sizeof ph.value);
+    hdcap_phase_choose(&ph);
+    printf("auto-phase, no signal (all zero): phase %d found %d%s\n", ph.phase, ph.found, ph.phase == 0 && !ph.found ? "" : "  <-- WRONG");
+    fails += !(ph.phase == 0 && !ph.found);
 
     /* Manual mode choices are stored as indices (OBS settings, hdcapd.conf), so new modes must stay
      * at the end of the table; and the 15 kHz windows must hold exactly one 240/288-line field. */
     size_t n;
     const hdcap_mode *all = hdcap_modes(&n);
-    int ok = n >= 2 && strstr(all[n - 2].name, "240p, 15 kHz") && strstr(all[n - 1].name, "288p, 15 kHz") &&
-             all[n - 2].vactive == 240 && all[n - 1].vactive == 288 && !all[n - 2].interlaced && !all[n - 1].interlaced &&
-             all[n - 2].hactive == 720 && all[n - 1].hactive == 720;
-    printf("15 kHz modes are the last two entries, 720x240 and 720x288, progressive%s\n", ok ? "" : "  <-- WRONG");
+    int ok = n >= 36 && !strcmp(all[31].name, "1920x1080p60") && strstr(all[32].name, "240p, 15 kHz") &&
+             strstr(all[33].name, "288p, 15 kHz") && strstr(all[34].name, "X68000, MiSTer") &&
+             strstr(all[35].name, "X68000 24 kHz") && all[32].vactive == 240 &&
+             all[33].vactive == 288 && !all[32].interlaced && !all[33].interlaced && all[32].hactive == 720 &&
+             all[33].hactive == 720;
+    printf("v0.3.1's 32 modes keep their indices; 240p, 288p and the two X68000 modes follow at 32-35%s\n", ok ? "" : "  <-- WRONG");
     fails += !ok;
 
     printf("%s\n", fails ? "FAILURES" : "ALL OK");
