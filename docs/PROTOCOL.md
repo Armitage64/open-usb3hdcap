@@ -280,6 +280,12 @@ on a MiSTer FPGA X68000 core:
 | 24 kHz | 481, 28.86 kHz, 60 Hz | 640x448@60 (X68000 24 kHz, MiSTer) | 944; 640x448 from 256/33 (Marble Madness: 576 wide from 288) |
 | 256x256 (15 kHz) | 264, 15.84 kHz, 60 Hz | 720x240p (240p, 15 kHz) | 858 (13.5 MHz); the picture is 723 samples wide, 112-834 |
 
+Atari System 2 (MiSTer 720 Degrees core): 417 lines at 24.996 kHz, 59.94 Hz. Its attract mode moves
+too much for the meter scan (about 96 % spread at every divider), so the samples per line came from
+the picture: at 880 it was 704 samples wide (80 % of the line), so a 512-pixel line is 640 in all.
+At 640 a static text bar stayed unchanged at 7 of 8 phases (639 and 641 flickered at most), and the
+picture is exactly 512x384 from 96/24. libhdcap mode "512x384@60 (Atari System 2, MiSTer)".
+
 ### Digital inputs: InfoFrame, colour matrix, audio source (verified live, 2026-10-18)
 - **DVI-D** = HDMI setup with MST3367 0x51 = 0x89 (second TMDS port) and CPLD 0x01 = 0x01.
 - **MST3367 bank 2 0x48–0x4B = AVI InfoFrame PB1–PB4.**

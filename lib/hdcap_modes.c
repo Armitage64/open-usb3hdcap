@@ -104,6 +104,13 @@ static const hdcap_mode modes[] = {
      * runs 448 lines; that game's playfield is 576 wide from sample 288. The visible width is up to
      * the software, so the window is 640 wide from 256, centring 576 with room for wider screens. */
     { "640x448@60 (X68000 24 kHz, MiSTer)", 944, 640, 256, 481, 448, 33, 27.245, 0, 0 },
+    /* Atari System 2 arcade (25 kHz medium resolution), measured on the MiSTer FPGA 720 Degrees
+     * core: 417 lines at 25.0 kHz, 59.94 Hz. At 880 samples per line the picture was 704 wide, 80 %
+     * of the line, so a 512-pixel line is 640 in all (16.0 MHz); at 640 a static text bar stayed
+     * unchanged at 7 of 8 phases, at 639 and 641 it flickered at most of them. 512x384 from 96/24,
+     * with equal margins either side when the window is widened. The attract mode moves too much
+     * for the sharpness-meter scan (about 96 % spread at every setting). */
+    { "512x384@60 (Atari System 2, MiSTer)", 640, 512, 96, 417, 384, 24, 15.997, 0, 0 },
 };
 
 const hdcap_mode *hdcap_modes(size_t *count)

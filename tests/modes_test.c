@@ -48,6 +48,7 @@ int main(void)
     expect(HDCAP_INPUT_VGA, 264, 15.838, 0, "240p, 15 kHz", "X68000 15 kHz (264 lines, 15.838 kHz, seen live)");
     expect(HDCAP_INPUT_VGA, 568, 34.082, 0, "X68000, MiSTer", "X68000 768x512 (568 lines, 34.082 kHz, seen live)");
     expect(HDCAP_INPUT_VGA, 481, 28.861, 0, "X68000 24 kHz", "X68000 24 kHz (481 lines, 28.861 kHz, seen live)");
+    expect(HDCAP_INPUT_VGA, 417, 24.996, 0, "Atari System 2", "Atari System 2, 720 Degrees (417 lines, 24.996 kHz, seen live)");
 
     /* Auto-phase decision, from meter readings (the X68000 sweep seen live, then a flat picture) */
     hdcap_phase_result ph = { 0 };
@@ -71,12 +72,12 @@ int main(void)
      * at the end of the table; and the 15 kHz windows must hold exactly one 240/288-line field. */
     size_t n;
     const hdcap_mode *all = hdcap_modes(&n);
-    int ok = n >= 36 && !strcmp(all[31].name, "1920x1080p60") && strstr(all[32].name, "240p, 15 kHz") &&
+    int ok = n >= 37 && !strcmp(all[31].name, "1920x1080p60") && strstr(all[32].name, "240p, 15 kHz") &&
              strstr(all[33].name, "288p, 15 kHz") && strstr(all[34].name, "X68000, MiSTer") &&
-             strstr(all[35].name, "X68000 24 kHz") && all[32].vactive == 240 &&
+             strstr(all[35].name, "X68000 24 kHz") && strstr(all[36].name, "Atari System 2") && all[32].vactive == 240 &&
              all[33].vactive == 288 && !all[32].interlaced && !all[33].interlaced && all[32].hactive == 720 &&
              all[33].hactive == 720;
-    printf("v0.3.1's 32 modes keep their indices; 240p, 288p and the two X68000 modes follow at 32-35%s\n", ok ? "" : "  <-- WRONG");
+    printf("v0.3.1's 32 modes keep their indices; 240p, 288p, two X68000 modes, Atari System 2 follow at 32-36%s\n", ok ? "" : "  <-- WRONG");
     fails += !ok;
 
     printf("%s\n", fails ? "FAILURES" : "ALL OK");

@@ -42,6 +42,7 @@ Verified live on an Intel Mac (macOS 15), with OBS 32.2.2, QuickTime and ffmpeg:
 | Composite | NTSC 480i (deinterlaced to 60 fps in the camera), **240p** (line-doubled to 720×480 at 60 fps) | VHS deck, Sega Dreamcast, Super Nintendo |
 | VGA, 15 kHz RGB | **240p** (60 Hz) and **288p** (50 Hz), detected automatically and line-doubled to 720×480 / 720×576 (4:3): Genesis H40 (320×224), Amiga NTSC hires (640×200) and PAL lores; 200-line modes up to 1200×200, 1200×400 interlaced, switching between modes while capturing. OBS plugin and `hdcap-capture` on an Apple Silicon Mac (M1 Max, macOS 26.6.2) | MiSTer FPGA analog VGA output with `vga_scaler=0`, `forced_scandoubler=0` (Genesis core with the 240p Test Suite, Amiga core) |
 | VGA, Sharp X68000 | **31 kHz** 768×512 (Human68k), 512×512 and 384×512, all sampled at the core's pixel clock (1 or 2 samples per pixel); **24 kHz** (Marble Madness, 640×448 window); **15 kHz** 256×256 (Space Harrier, via the 240p mode). Automatic sampling phase, steady text; switching between cores and back. OBS plugin and `hdcap-capture`, Apple Silicon Mac | MiSTer FPGA X68000 core, same output settings |
+| VGA, 25 kHz arcade | Atari System 2 medium resolution, 512×384 at 59.94 Hz, sampled at its pixel clock (OBS, `hdcap-capture`) | MiSTer FPGA 720 Degrees core |
 | Audio | HDMI embedded, analog line-in; clock drift corrected (20-minute runs without glitches) | |
 | Robustness | input switching, unplug and replug | |
 
@@ -93,8 +94,9 @@ open an issue with the **Test report** template. Working results are as valuable
   phase the input tables set, as before: they sample at 13.5 MHz (or the HD rates) whatever the
   source's pixel clock, so there is no right phase, and on undersampled detail such as Amiga hires
   the meter preferred the phase that flickered most.
-- The X68000 modes match the **MiSTer FPGA core's** timing. Its 768×512 line is a fraction of a
-  sample longer or shorter than the 1104 samples the chip can be set to, so even at the best phase
+- The X68000 and Atari System 2 modes match the **MiSTer FPGA cores'** timing; the original
+  machines may differ slightly. The X68000's 768×512 line is a fraction of a sample longer or
+  shorter than the 1104 samples the chip can be set to, so even at the best phase
   about 0.1 % of the pixels of a static screen are not perfectly steady. The 24 kHz window is 640
   wide; software using a wider picture would be cropped (adjust the horizontal offset).
 
